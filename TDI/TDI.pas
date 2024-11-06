@@ -33,7 +33,8 @@
 
 interface
 
-uses ComCtrls, Forms, Messages, Controls, Menus, Classes, TabCloseButton;
+uses ComCtrls, Forms, Messages, Controls, Menus, Classes, TabCloseButton,
+  Vcl.ExtCtrls, Vcl.StdCtrls;
 
 const
   WM_CLOSE_TAB = WM_USER + 1;
@@ -47,6 +48,7 @@ type
 
   TTDI = class(TWinControl)
   private
+    FPaginaAtiva: integer;
     FPageControl: TPageControl;
     FFormPadrao: TFormClass;
     FPopup: TPopupMenu;
@@ -60,7 +62,7 @@ type
     procedure OnTabHide(Sender: TObject);
     procedure MenuFechar(Sender: TObject);
     procedure MenuFecharTodas(Sender: TObject);
-    procedure CriarFormulario(Classe: TFormClass);
+    function CriarFormulario(Classe: TFormClass; const cp: String = ''): TForm;
     procedure CriarPageControl;
     procedure WM_CLOSETAB(var Msg: TMessage); message WM_CLOSE_TAB;
     function NovaAba: TTabSheet;
@@ -71,19 +73,20 @@ type
     procedure PageControlMouseDown(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
     procedure PageControlCloseClick(Sender: TObject);
+    procedure PageControlChanging(Sender: TObject; var AllowChange: Boolean);
+    procedure PaginaShow(Sender: TObject);
     procedure CloseTab(Pagina: Integer);
   public
     constructor Create(AOwner: TWinControl; aFormPadrao: TFormClass); reintroduce;
     destructor Destroy; override;
 
-    procedure MostrarFormulario(Classe: TFormClass; Multi: Boolean);
+    function MostrarFormulario(Classe: TFormClass; Multi: Boolean; const cp: String = ''): TForm;
 
     procedure Fechar(Todas: Boolean);
 
     procedure VisualizarAbas(Visualizador: IVisualizador; NaoExibir: TFormClass);
-	{Você informa o index da aba e o método retorna o formulário que está sendo 
-	 exibido nela}
-	function Formulario(Pagina: Integer): TForm;
+	  {Você informa o index da aba e o método retorna o formulário que está sendo exibido nela}
+	  function Formulario(Pagina: Integer): TForm;
   published
     property MostrarMenuPopup: Boolean read GetMostrarMenuPopup write SetMostrarMenuPopup;
     property PageControl: TPageControl read GetPageControl;
@@ -104,17 +107,18 @@ type
 
 implementation
 
-uses SysUtils, Windows;
+uses SysUtils, Windows, UPRINCIPAL;
 
 const
   INDEX_FORM = 00;//o primeiro componente da TTabSheet eh sempre o formulario
 
 { TTDI }
 
-procedure TTDI.MostrarFormulario(Classe: TFormClass; Multi: Boolean);
+function TTDI.MostrarFormulario(Classe: TFormClass; Multi: Boolean; const cp: String = ''): TForm;
 var
   Anterior: TTabSheet;
 begin
+
   if not Multi then//se nao pode criar mais de uma instacia da classe
   begin
     Anterior := PageControl.ActivePage;
@@ -122,12 +126,16 @@ begin
 
     if PageControl.ActivePage <> nil then//se encontrou uma instacia da classe
     begin
-      if Anterior <> PageControl.ActivePage then PageControl.Change();
-      Exit;//sai pq nao pode criar outra
+      if Anterior <> PageControl.ActivePage then
+        PageControl.Change();
+
+      Result := Formulario(PageControl.ActivePageIndex); //nil   tirei o nil pq preciso saber qual formulario é
+
+      exit;//sai pq nao pode criar outra
     end;
   end;
 
-  CriarFormulario(Classe);
+  Result := CriarFormulario(Classe, cp);
 end;
 
 constructor TTDI.Create(AOwner: TWinControl; aFormPadrao: TFormClass);
@@ -141,9 +149,7 @@ begin
 
   FFormPadrao := aFormPadrao;
   if Assigned(FFormPadrao) then
-  begin
     MostrarFormulario(FFormPadrao, False);
-  end;
 end;
 
 function TTDI.NovaAba: TTabSheet;
@@ -154,8 +160,17 @@ function TTDI.NovaAba: TTabSheet;
      ultima TabSheet criada}
 var
   Tab: TTabSheet;
+//  ImgFundo: TImage;
 begin
   Tab := TTabSheet.Create(PageControl);
+
+//  ImgFundo := TImage.Create(Tab);
+//  ImgFundo.Parent := Tab;
+//  ImgFundo.Align := alClient;
+//  ImgFundo.SendToBack;
+//  ImgFundo.Name := 'imgfundo_abcefghijklmnopq';
+//  ImgFundo.Picture := FormPrincipal.ImgFundo.Picture;
+//  Application.ProcessMessages;
 
   Tab.PageControl := PageControl;
   Tab.TabVisible  := True;
@@ -195,7 +210,7 @@ begin
 
   //loop por todas as paginas
   for i := i to PageControl.PageCount - 1 do
-    if Formulario(i) is aClasseForm then
+    if (Formulario(i) is aClasseForm) then //and (PageControl.Pages[i].TabVisible) then    //verifica se a aba estiver oculta
     begin
       Result := PageControl.Pages[i];
 
@@ -209,6 +224,11 @@ begin
         Break;
       end;                                                      
     end;
+end;
+
+procedure TTDI.PaginaShow(Sender: TObject);
+begin
+  FPaginaAtiva := TTabSheet(Sender).PageIndex;
 end;
 
 procedure TTDI.SetFormPadrao(const Value: TFormClass);
@@ -269,7 +289,7 @@ procedure TTDI.Fechar(Todas: Boolean);
 var
   i: Integer;
 begin
-  if PageControl.ActivePageIndex = -1 then
+  if PageControl.ActivePageIndex <= -1 then
     Exit;
 
   case Todas of
@@ -281,7 +301,7 @@ begin
 
     False:
      // PostMessage(Self.Handle, WM_CLOSE_TAB, PageControl.ActivePageIndex, 0);
-      CloseTab(PageControl.ActivePageIndex);
+      CloseTab(PageControl.ActivePageIndex);  //.TabIndex //FPaginaAtiva
   end;
 end;
 
@@ -326,8 +346,16 @@ begin
   if Form <> nil then
   begin
     Form.Close;
+    Application.processmessages; //pra resolver o problema do CEF (chromium) ao fechar
     if not Form.Visible then
-      Form.Free;
+    begin
+      try
+//        FreeAndNil(form);
+        Form.Free;
+        Form := nil; //tentar resolver o access violation ao fechar
+      except
+      end;
+    end;
 
     //se o formulario nao existe mais
     if Formulario(Pagina) = nil then
@@ -335,9 +363,11 @@ begin
       {se nao setarmos o ActivePage (abaixo), quando o usuário pedir para fechar
        todas, duas vezes seguidas, o OnHide nao será executado na segunda vez e
        o FormPadrao não sera mostrado}
-      //PageControl.ActivePage := nil; //Roniery correção para abas sumindo apos fechar uma aba
+      PageControl.ActivePage := nil;
 
+      //PageControl.Pages[Pagina].TabVisible := false; //oculta a pagina q some mesmo q tenha dado erro, tratar o verificar se tem aba aberta
       PageControl.Pages[Pagina].Free;//entao deleta a pagina
+
       PageControl.Change();
     end;
   end;
@@ -355,7 +385,7 @@ begin
   Fechar(True);
 end;
 
-procedure TTDI.CriarFormulario(Classe: TFormClass);
+function TTDI.CriarFormulario(Classe: TFormClass; const cp: String = ''): TForm;
   {cria o formulario a partir de sua classe}
 const
   EspacosBotaoFechar = '      ';  //espaço destinado p/ o botão 'fechar' de cada aba
@@ -365,12 +395,13 @@ begin
   Form := TFormClass(Classe).Create(NovaAba);
   with Form do
   begin
-
     //configura o formulario
     Align       := alClient;
     BorderStyle := bsNone;
     Parent      := PageControl.ActivePage;//ActivePage é ultima aba criada com NovaAba
 
+    Tag := 1; //controlar o mesmo formulario se ta sendo fechado pelo modal  (Dorivan)
+    FPaginaAtiva := PageControl.ActivePageIndex;
 
     {O evento onActive do TForm não é executado pq o que se torna ativo
      na verdade é o TTabSheet onde o formulario foi criado. Sendo assim qualquer
@@ -378,8 +409,12 @@ begin
      Para contornar esta situação nos passamos o evento onActive do Form para o
      evento onEnter do TTabSheet. E assim simulamos com segurança o evento onActive}
     PageControl.ActivePage.OnEnter := OnActivate;
+//    PageControl.ActivePage.OnShow := PaginaShow;
 
-    PageControl.ActivePage.Caption := Caption + EspacosBotaoFechar;//transfere o caption do form para o caption da aba
+    if trim(cp) = '' then //transfere o caption do form para o caption da aba
+      PageControl.ActivePage.Caption := Caption + EspacosBotaoFechar
+    else
+      PageControl.ActivePage.Caption := cp + EspacosBotaoFechar;
 
     Show;//mostra o formulário
 
@@ -391,6 +426,8 @@ begin
     except
     end;
   end;
+
+  Result := Form;
 end;
 
 procedure TTDI.CriarPageControl;
@@ -406,7 +443,11 @@ begin
     OnMouseDown   := PageControlMouseDown;
     OnDragDrop    := PageControlDragDrop;
     OnCloseClick  := PageControlCloseClick;
+    OnChanging    := PageControlChanging;
     StyleElements := [];  //desabilita VCL skin p/ o PageControl (se estiver habilitado, os botões p/ fechar as abas não aparecem)
+//    Style := tsFlatButtons;
+    TabStop := False;
+//    TabPosition := tpBottom;
   end;
 end;
 
@@ -441,7 +482,12 @@ end;
 
 procedure TTDI.PageControlCloseClick(Sender: TObject);
 begin
-  Fechar(False);
+  if FPaginaAtiva = PageControl.ActivePageIndex then
+  begin
+    application.processMessages;
+    Fechar(False);
+  end;
+  FPaginaAtiva := PageControl.ActivePageIndex;
 end;
 
 procedure TTDI.PageControlMouseDown(Sender: TObject;
@@ -451,6 +497,10 @@ begin
     TPageControl(Sender).BeginDrag(False);
 end;
 
+procedure TTDI.PageControlChanging(Sender: TObject; var AllowChange: Boolean);
+begin
+  FPaginaAtiva := PageControl.ActivePageIndex;
+end;
 
 procedure TTDI.PageControlDragDrop(Sender, Source: TObject; X, Y: Integer);
 const

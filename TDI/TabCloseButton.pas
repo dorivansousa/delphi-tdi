@@ -77,13 +77,13 @@ begin
 
     if Active then
     begin
-      CloseBtnRect.Top := Rect.Top + 4;
+      CloseBtnRect.Top := Rect.Top + 3;
       CloseBtnRect.Right := Rect.Right - 5;
       TabCaption.X := Rect.Left + 6;
     end
     else
     begin
-      CloseBtnRect.Top := Rect.Top + 3;
+      CloseBtnRect.Top := Rect.Top + 2;
       CloseBtnRect.Right := Rect.Right - 5;
       TabCaption.X := Rect.Left + 3;
     end;
@@ -110,9 +110,9 @@ begin
       Dec(FCloseButtonsRect[TabIndex].Left);
 
       if (TabIndex = ActivePageIndex) and FCloseButtonShowPushed then
-        CloseBtnDrawDetails := ThemeServices.GetElementDetails(twSmallCloseButtonPushed)
+        CloseBtnDrawDetails := ThemeServices.GetElementDetails(twMDICloseButtonPushed)
       else
-        CloseBtnDrawDetails := ThemeServices.GetElementDetails(twSmallCloseButtonNormal);
+        CloseBtnDrawDetails := ThemeServices.GetElementDetails(twMDICloseButtonNormal); //twCloseButtonNormal
 
       ThemeServices.DrawElement(Canvas.Handle, CloseBtnDrawDetails,
         FCloseButtonsRect[TabIndex]);
